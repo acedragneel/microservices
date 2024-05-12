@@ -1,5 +1,6 @@
 package com.aceprogramming.orderservice.service;
 
+import com.aceprogramming.orderservice.dto.InventoryResponse;
 import com.aceprogramming.orderservice.dto.OrderLineItemsDto;
 import com.aceprogramming.orderservice.dto.OrderRequest;
 import com.aceprogramming.orderservice.model.Order;
@@ -10,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -18,7 +20,7 @@ import java.util.UUID;
 public class OrderService {
     private final OrderRepository orderRepository;
 
-    private final WebClient webClient;
+    private final WebClient.Builder  webClientBuilder;
 
     public void placeOrder(OrderRequest orderRequest){
         Order order = new Order();
@@ -31,16 +33,29 @@ public class OrderService {
 
         order.setOrderLineItemsList(orderLineItems);
 
+        List<String> skuCodes = order.getOrderLineItemsList().stream()
+                .map(OrderLineItems::getSkuCode)
+                .toList();
+
         //Call Inventory Service, and place order if product is in stock
 
-        Boolean result = webClient.get()
-                .uri("http://localhost:8082/api/inventory")
+        InventoryResponse[] inventoryResponsesArray = webClientBuilder.build().get()
+                .uri("http://inventory-service/api/inventory",
+                        uriBuilder -> uriBuilder.queryParam("skuCode", skuCodes).build())
                 .retrieve()
-                .bodyToMono(boolean.class)
+                .bodyToMono(InventoryResponse[].class)
                 .block(); // block is used to make synchronous
 
+        boolean allProductsInStock = Arrays.stream(inventoryResponsesArray).
+                allMatch(InventoryResponse::isInStock);
 
-        orderRepository.save(order);
+        if(allProductsInStock){
+            orderRepository.save(order);
+        }else{
+            throw new IllegalArgumentException("Product is not in stock, please try agian later");
+        }
+
+
 
     }
 
